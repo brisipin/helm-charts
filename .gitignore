@@ -1,0 +1,3 @@
+# Per-cluster secrets passed with `-f`; never commit these.
+*.secret.yaml
+*.tgz

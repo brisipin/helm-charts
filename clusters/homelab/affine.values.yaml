@@ -1,0 +1,6 @@
+# Placeholder for a future home-lab cluster. The chart defaults (bundled
+# Postgres and Redis, files on a volume from the default storage class) are
+# already home-lab shaped; set the hostname and ingress here when it exists.
+
+server:
+  externalUrl: http://localhost:3010

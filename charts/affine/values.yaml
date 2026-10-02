@@ -1,0 +1,142 @@
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/toeverything/affine
+  # Defaults to the chart's appVersion. Pin a release; avoid "stable".
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+server:
+  # Name shown in AFFiNE clients when they connect to this server.
+  name: AFFiNE Self-hosted
+  # Public base URL, e.g. https://affine.example.com. Used for links in
+  # emails and share URLs, so set it to whatever users type in the browser.
+  externalUrl: http://localhost:3010
+
+# Extra keys merged over the generated config.json (AFFiNE's own schema:
+# https://github.com/toeverything/affine/releases/latest/download/config.schema.json).
+# Example:
+#   config:
+#     auth:
+#       allowSignup: false
+#     indexer:
+#       enabled: true
+#       provider.type: embedded
+config: {}
+
+secret:
+  # Name of a Secret you manage yourself. When set, the chart creates no
+  # Secret and expects these keys in yours:
+  #   AFFINE_PRIVATE_KEY  EC P-256 private key, PEM (signs sessions)
+  #   DATABASE_URL        postgresql://user:pass@host:5432/db
+  #   POSTGRES_PASSWORD   only when postgres.enabled
+  #   MAILER_PASSWORD     only when mailer.enabled
+  # Use this with tools that render without cluster access (helm template,
+  # Argo CD): the generated key and password below rely on `lookup` to stay
+  # stable across upgrades.
+  existingSecret: ""
+  # Leave empty to generate once and keep across upgrades.
+  privateKey: ""
+
+# Where uploaded files (images, attachments) live.
+storage:
+  # fs: on the persistence volume below. s3: in an S3-compatible bucket.
+  type: fs
+  s3:
+    bucket: ""
+    region: ""
+    # Set for non-AWS S3 (MinIO, Garage, ...); leave empty for AWS.
+    endpoint: ""
+    forcePathStyle: false
+    accessKeyId: ""
+    secretAccessKey: ""
+    # Optional second bucket for user avatars. When empty, avatars stay on the
+    # persistence volume.
+    avatarBucket: ""
+
+# Volume mounted at /root/.affine/storage (uploaded files when
+# storage.type=fs, and avatars unless storage.s3.avatarBucket is set).
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+
+mailer:
+  enabled: false
+  host: ""
+  port: 465
+  username: ""
+  # Stored in the chart Secret as MAILER_PASSWORD.
+  password: ""
+  sender: ""
+
+# Used when postgres.enabled=false. Needs the pgvector extension.
+externalDatabase:
+  url: ""
+
+postgres:
+  enabled: true
+  image:
+    repository: pgvector/pgvector
+    tag: pg16
+    pullPolicy: IfNotPresent
+  # Leave empty to generate once and keep across upgrades.
+  password: ""
+  persistence:
+    storageClass: ""
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+# Used when redis.enabled=false.
+externalRedis:
+  host: ""
+  port: 6379
+
+# Cache and job queue only; runs without a volume.
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+service:
+  type: ClusterIP
+  port: 3010
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""
+  tls:
+    enabled: false
+    secretName: ""
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 1Gi
+  limits:
+    memory: 2Gi
+
+extraEnv: []
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

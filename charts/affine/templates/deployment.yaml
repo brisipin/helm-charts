@@ -1,0 +1,100 @@
+{{- $image := printf "%s:%s" .Values.image.repository (.Values.image.tag | default .Chart.AppVersion) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "affine.fullname" . }}
+  labels:
+    {{- include "affine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: 1
+  # The storage volume is ReadWriteOnce, so the old pod must go first.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "affine.selectorLabels" (dict "ctx" . "component" "server") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "affine.selectorLabels" (dict "ctx" . "component" "server") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/config-secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        # Schema and data migrations; retried by the kubelet until Postgres
+        # and Redis are reachable.
+        - name: migrate
+          image: {{ $image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["sh", "-c", "node ./scripts/self-host-predeploy.js"]
+          env:
+            {{- include "affine.env" . | nindent 12 }}
+          volumeMounts:
+            {{- include "affine.volumeMounts" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      containers:
+        - name: affine
+          image: {{ $image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3010
+          env:
+            {{- include "affine.env" . | nindent 12 }}
+          volumeMounts:
+            {{- include "affine.volumeMounts" . | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /info
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /info
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /info
+              port: http
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        # Writable so the migration can drop its generated files next to the
+        # mounted config.json; nothing here needs to survive a restart.
+        - name: config
+          emptyDir: {}
+        - name: config-file
+          secret:
+            secretName: {{ include "affine.fullname" . }}-config
+        - name: storage
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (printf "%s-storage" (include "affine.fullname" .)) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,92 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "affine.fullname" . }}-postgres
+  labels:
+    {{- include "affine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  clusterIP: None
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+  selector:
+    {{- include "affine.selectorLabels" (dict "ctx" . "component" "postgres") | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "affine.fullname" . }}-postgres
+  labels:
+    {{- include "affine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: {{ include "affine.fullname" . }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "affine.selectorLabels" (dict "ctx" . "component" "postgres") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "affine.selectorLabels" (dict "ctx" . "component" "postgres") | nindent 8 }}
+    spec:
+      containers:
+        - name: postgres
+          image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
+          imagePullPolicy: {{ .Values.postgres.image.pullPolicy }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: affine
+            - name: POSTGRES_DB
+              value: affine
+            - name: POSTGRES_INITDB_ARGS
+              value: --data-checksums
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "affine.secretName" . }}
+                  key: POSTGRES_PASSWORD
+            # A subdirectory, because block volumes come with lost+found at
+            # the root and initdb refuses a non-empty directory.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "affine", "-d", "affine"]
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "affine", "-d", "affine"]
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.postgres.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.postgres.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgres.persistence.size }}
+{{- end }}
