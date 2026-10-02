@@ -3,13 +3,27 @@
 Helm charts for self-hosted apps, kept independent of any one cluster.
 
 ```
-charts/<app>/                      the chart; defaults work on any cluster
+helmfile.yaml.gotmpl                   every release, per cluster
+charts/<app>/                          the chart; defaults work on any cluster
 clusters/<cluster>/<app>.values.yaml   what differs on that cluster
 ```
 
-Secrets never go in this repo. Put per-cluster secret values in a
-`*.secret.yaml` file (gitignored) and pass it with a second `-f`, or create
-the Secret yourself and point the chart at it.
+## Deploying
+
+[helmfile](https://helmfile.readthedocs.io) installs everything a cluster
+should run. Each cluster is a helmfile environment bound to a kube context,
+and `-e` is required:
+
+```sh
+helmfile -e rackspace-spot diff    # what would change
+helmfile -e rackspace-spot apply   # make it so
+```
+
+Needs `helm`, `helmfile`, and the `helm-diff` plugin.
+
+Secrets never go in this repo. Put per-cluster secret values in
+`clusters/<cluster>/<app>.secret.yaml` (gitignored; helmfile picks it up when
+present), or create the Secret yourself and point the chart at it.
 
 ## AFFiNE
 
@@ -17,15 +31,8 @@ the Secret yourself and point the chart at it.
 container. Postgres (with pgvector) and Redis are bundled by default and can
 each be switched off in favour of an external service.
 
-Install or upgrade on the Rackspace Spot cluster:
-
-```sh
-helm --kube-context the-mill-tee-bot-dev-oidc upgrade --install affine charts/affine \
-  --namespace affine --create-namespace \
-  -f clusters/rackspace-spot/affine.values.yaml
-```
-
-Then reach it and create the admin account:
+After `helmfile -e rackspace-spot apply`, reach it and create the admin
+account:
 
 ```sh
 kubectl -n affine rollout status deploy/affine
