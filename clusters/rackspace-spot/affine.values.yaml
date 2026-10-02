@@ -1,22 +1,21 @@
 # Rackspace Spot cloudspace (kube context: the-mill-tee-bot-dev-oidc).
 #
-# First-deploy shape: everything in-cluster on Cinder volumes, reachable by
-# port-forward only. Nodes are spot instances (gp.5.2.4, ~1.5 CPU / 2.7Gi
-# allocatable each), so requests are kept small and Postgres has no
-# off-cluster backup yet.
+# Nodes are spot instances (gp.5.2.4, ~1.5 CPU / 2.7Gi allocatable each), so
+# the database lives off-cluster and requests are kept small. Reachable by
+# port-forward only until ingress or a tunnel exists.
 
 server:
   # Change to the public URL once ingress or a tunnel exists.
   externalUrl: http://localhost:3010
 
+# Postgres is the affine-prod Supabase project (platformy: env/prod/affine).
+# Its URL comes from affine.secret.yaml; see affine.secret.example.yaml.
+postgres:
+  enabled: false
+
 persistence:
   storageClass: ssdv2-performance
   size: 10Gi
-
-postgres:
-  persistence:
-    storageClass: ssdv2-performance
-    size: 10Gi
 
 resources:
   requests:

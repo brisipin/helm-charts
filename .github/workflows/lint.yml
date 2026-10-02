@@ -31,6 +31,11 @@ jobs:
       - name: Lint and render every cluster's releases
         run: |
           set -euo pipefail
+          # Real secret files are gitignored; stand in the committed examples.
+          for example in clusters/*/*.secret.example.yaml; do
+            [ -e "$example" ] || continue
+            cp "$example" "${example%.example.yaml}.yaml"
+          done
           for dir in clusters/*/; do
             env="$(basename "$dir")"
             echo "::group::$env"

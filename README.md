@@ -23,7 +23,9 @@ Needs `helm`, `helmfile`, and the `helm-diff` plugin.
 
 Secrets never go in this repo. Put per-cluster secret values in
 `clusters/<cluster>/<app>.secret.yaml` (gitignored; helmfile picks it up when
-present), or create the Secret yourself and point the chart at it.
+present), or create the Secret yourself and point the chart at it. A
+committed `<app>.secret.example.yaml` next to it shows which keys that
+cluster needs and where the real values live.
 
 ## AFFiNE
 
