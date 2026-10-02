@@ -1,0 +1,59 @@
+# One-time bootstrap, applied by hand (see README): the namespace AFFiNE
+# installs into and the ServiceAccount the CI server dry-run check uses.
+#
+# A server-side dry run still needs the same RBAC verbs as the real request,
+# so this account can create and update the chart's resource kinds in the
+# `affine` namespace (and read its Secrets). It cannot delete anything and
+# has no access outside the namespace.
+#
+# Nothing here is secret: the Secret below is a request object, and the API
+# server fills in `data.token` after creation.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: affine
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: github-actions-helm-charts
+  namespace: affine
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: github-actions-helm-charts
+  namespace: affine
+rules:
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps", "services", "persistentvolumeclaims", "serviceaccounts"]
+    verbs: ["get", "list", "create", "update", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "create", "update", "patch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: github-actions-helm-charts
+  namespace: affine
+subjects:
+  - kind: ServiceAccount
+    name: github-actions-helm-charts
+    namespace: affine
+roleRef:
+  kind: Role
+  name: github-actions-helm-charts
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-actions-helm-charts-token
+  namespace: affine
+  annotations:
+    kubernetes.io/service-account.name: github-actions-helm-charts
+type: kubernetes.io/service-account-token
