@@ -1,0 +1,9 @@
+apiVersion: v2
+name: affine
+description: Self-hosted AFFiNE (server, optional bundled Postgres and Redis)
+type: application
+version: 0.1.0
+appVersion: "0.27.4"
+home: https://github.com/brisipin/helm-charts
+sources:
+  - https://github.com/toeverything/AFFiNE

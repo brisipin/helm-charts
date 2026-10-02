@@ -1,0 +1,15 @@
+AFFiNE {{ .Values.image.tag | default .Chart.AppVersion }} is starting. The first start runs database migrations and can take a few minutes:
+
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "affine.fullname" . }}
+
+{{- if .Values.ingress.enabled }}
+
+Open {{ .Values.server.externalUrl }}/admin to create the admin account.
+{{- else }}
+
+No ingress is configured. To reach it from your machine:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "affine.fullname" . }} 3010:{{ .Values.service.port }}
+
+then open http://localhost:3010/admin to create the admin account.
+{{- end }}

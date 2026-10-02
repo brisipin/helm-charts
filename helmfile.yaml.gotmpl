@@ -1,0 +1,31 @@
+# Everything a cluster should run. Pick the cluster with -e:
+#
+#   helmfile -e rackspace-spot diff
+#   helmfile -e rackspace-spot apply
+#
+# There is no default environment on purpose, so a bare `helmfile apply`
+# fails instead of deploying to whatever kube context happens to be current.
+environments:
+  rackspace-spot:
+    kubeContext: the-mill-tee-bot-dev-oidc
+  homelab:
+    kubeContext: homelab
+---
+helmDefaults:
+  # Let `diff` read the live cluster, so values the charts generate once and
+  # look up afterwards (keys, passwords) don't show as changed on every run.
+  diffArgs:
+    - --dry-run=server
+
+releases:
+  - name: affine
+    namespace: affine
+    createNamespace: true
+    chart: ./charts/affine
+    values:
+      - clusters/{{ .Environment.Name }}/affine.values.yaml
+      {{- /* Gitignored per-cluster secrets, picked up when present. */}}
+      {{- $secrets := printf "clusters/%s/affine.secret.yaml" .Environment.Name }}
+      {{- if isFile $secrets }}
+      - {{ $secrets }}
+      {{- end }}

@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  HELMFILE_VERSION: 1.8.1
+  KUBECONFORM_VERSION: 0.8.0
+  # Kubernetes version of the clusters, for schema validation.
+  KUBERNETES_VERSION: 1.31.1
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: No secret files committed
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -E '\.secret\.ya?ml$'; then
+            echo "::error::The files above look like real secret values; only *.secret.example.yaml may be committed."
+            exit 1
+          fi
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Set up helmfile and kubeconform
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/helmfile/helmfile/releases/download/v${HELMFILE_VERSION}/helmfile_${HELMFILE_VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP" helmfile
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP" kubeconform
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Lint, render and schema-check every cluster's releases
+        run: |
+          set -euo pipefail
+          # Real secret files are gitignored; stand in the committed examples.
+          for example in clusters/*/*.secret.example.yaml; do
+            [ -e "$example" ] || continue
+            cp "$example" "${example%.example.yaml}.yaml"
+          done
+          for dir in clusters/*/; do
+            env="$(basename "$dir")"
+            echo "::group::$env"
+            helmfile -e "$env" lint
+            helmfile -e "$env" template \
+              | kubeconform -strict -summary -kubernetes-version "$KUBERNETES_VERSION"
+            echo "::endgroup::"
+          done
+
+  chart-version:
+    # A chart whose files changed must also change its version, so a helm
+    # release's chart version always identifies what was deployed.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Changed charts have a new version
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          failed=0
+          for chart in charts/*/; do
+            chart="${chart%/}"
+            git diff --quiet "$BASE...HEAD" -- "$chart" && continue
+            new="$(grep -E '^version:' "$chart/Chart.yaml")"
+            old="$(git show "$BASE:$chart/Chart.yaml" 2>/dev/null | grep -E '^version:' || true)"
+            if [ "$new" = "$old" ]; then
+              echo "::error file=$chart/Chart.yaml::$chart changed but its version is still '${new#version: }'; bump it."
+              failed=1
+            else
+              echo "$chart: ${old:-new chart} -> $new"
+            fi
+          done
+          exit "$failed"
+
+  server-dry-run:
+    # Sends every release to the real API server as a dry run, which catches
+    # what offline checks cannot: admission rejections, immutable-field
+    # changes, missing storage classes or CRDs. Nothing is persisted.
+    runs-on: ubuntu-latest
+    env:
+      ENVIRONMENT: rackspace-spot
+      KUBE_CONFIG: ${{ secrets.KUBE_CONFIG_RACKSPACE_SPOT }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for cluster credentials
+        id: creds
+        run: |
+          if [ -z "$KUBE_CONFIG" ]; then
+            echo "::warning::KUBE_CONFIG_RACKSPACE_SPOT is not available (fork PR, or not set up yet); skipping the server dry run."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Write kubeconfig
+        if: steps.creds.outputs.available == 'true'
+        run: |
+          umask 077
+          printf '%s' "$KUBE_CONFIG" > "$RUNNER_TEMP/kubeconfig"
+
+      - name: Set up Helm
+        if: steps.creds.outputs.available == 'true'
+        uses: azure/setup-helm@v4
+
+      - name: Set up helmfile
+        if: steps.creds.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/helmfile/helmfile/releases/download/v${HELMFILE_VERSION}/helmfile_${HELMFILE_VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP" helmfile
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: helm upgrade --install --dry-run=server
+        if: steps.creds.outputs.available == 'true'
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+        run: |
+          set -euo pipefail
+          for example in clusters/"$ENVIRONMENT"/*.secret.example.yaml; do
+            [ -e "$example" ] || continue
+            cp "$example" "${example%.example.yaml}.yaml"
+          done
+          values_dir="$RUNNER_TEMP/values"
+          helmfile -e "$ENVIRONMENT" write-values \
+            --output-file-template "$values_dir/{{ .Release.Name }}.yaml" > /dev/null
+          helmfile -e "$ENVIRONMENT" list --output json \
+            | jq -r '.[] | select(.enabled) | [.name, .namespace, .chart] | @tsv' \
+            | while IFS=$'\t' read -r name namespace chart; do
+                echo "Dry-running $name in namespace $namespace"
+                # The rendered manifests include live Secrets read back from
+                # the cluster, so stdout is discarded; errors go to stderr.
+                helm upgrade --install "$name" "$chart" \
+                  --namespace "$namespace" \
+                  -f "$values_dir/$name.yaml" \
+                  --dry-run=server --hide-secret > /dev/null
+              done
